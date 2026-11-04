@@ -1,9 +1,10 @@
 import unittest
+from collections import UserDict
 from contextlib import contextmanager
 from datetime import datetime
 from unittest.mock import patch
 
-from address_book import AddressBook, Birthday, Phone, Record
+from address_book import AddressBook, Birthday, Field, Name, Phone, Record
 from bot import (
     add_birthday,
     add_contact,
@@ -32,7 +33,15 @@ class TestValidation(unittest.TestCase):
     def test_phone_must_contain_exactly_ten_digits(self):
         self.assertEqual(Phone("1234567890").value, "1234567890")
 
-        for phone in ("123456789", "12345678901", "12345abcde", "123 456789", "123-456789"):
+        for phone in (
+            "123456789",
+            "12345678901",
+            "12345abcde",
+            "123 456789",
+            "123-456789",
+            "",
+            None,
+        ):
             with self.subTest(phone=phone):
                 with self.assertRaises(ValueError) as error:
                     Phone(phone)
@@ -50,7 +59,17 @@ class TestValidation(unittest.TestCase):
         self.assertEqual(str(birthday), "07.11.1990")
 
     def test_birthday_rejects_invalid_format_and_impossible_dates(self):
-        for value in ("1990-11-07", "07/11/1990", "31.02.2025", "29.02.2025", "32.01.2020"):
+        for value in (
+            "1990-11-07",
+            "07/11/1990",
+            "7.11.1990",
+            "07.1.1990",
+            "31.02.2025",
+            "31.04.2025",
+            "29.02.2025",
+            "29.02.1900",
+            "32.01.2020",
+        ):
             with self.subTest(value=value):
                 with self.assertRaises(ValueError) as error:
                     Birthday(value)
@@ -62,11 +81,39 @@ class TestValidation(unittest.TestCase):
 
     def test_leap_day_is_accepted_in_a_leap_year(self):
         birthday = Birthday("29.02.2024")
+        century_leap_day = Birthday("29.02.2000")
 
         self.assertEqual(birthday.value, datetime(2024, 2, 29))
+        self.assertEqual(century_leap_day.value, datetime(2000, 2, 29))
 
 
 class TestRecordAndAddressBook(unittest.TestCase):
+    def test_fields_inherit_from_field_and_record_composes_them(self):
+        name = Name("Anna")
+        phone = Phone("1234567890")
+        birthday = Birthday("01.01.2000")
+
+        self.assertIsInstance(name, Field)
+        self.assertIsInstance(phone, Field)
+        self.assertIsInstance(birthday, Field)
+
+        record = Record("Anna")
+        record.add_phone("1234567890")
+        record.add_birthday("01.01.2000")
+
+        self.assertIsInstance(record.name, Name)
+        self.assertEqual(record.name.value, name.value)
+        self.assertEqual(len(record.phones), 1)
+        self.assertIsInstance(record.phones[0], Phone)
+        self.assertEqual(record.phones[0].value, phone.value)
+        self.assertIsInstance(record.birthday, Birthday)
+        self.assertEqual(record.birthday.value, birthday.value)
+
+        book = AddressBook()
+        self.assertIsInstance(book, UserDict)
+        book.add_record(record)
+        self.assertIs(book.data["Anna"], record)
+        self.assertIs(book.find("Anna"), record)
     def test_record_keeps_homework_06_phone_behavior(self):
         record = Record("John")
         record.add_phone("1234567890")
@@ -108,6 +155,11 @@ class TestRecordAndAddressBook(unittest.TestCase):
             record.add_birthday("08.11.1990")
 
         self.assertEqual(str(error.exception), "Contact already has a birthday")
+        self.assertEqual(str(record.birthday), "07.11.1990")
+
+        with self.assertRaises(ValueError):
+            record.add_birthday("31.04.2025")
+
         self.assertEqual(str(record.birthday), "07.11.1990")
 
     def test_address_book_find_and_delete(self):
@@ -224,10 +276,71 @@ class TestUpcomingBirthdays(unittest.TestCase):
             },
         )
 
+    def test_day_seven_and_day_eight_are_outside_the_window(self):
+        book = self._book_with(
+            [
+                ("LastDay", "10.11.2000"),
+                ("SevenDays", "11.11.2001"),
+                ("EightDays", "12.11.2002"),
+            ]
+        )
+
+        with freeze_today(2026, 11, 4):
+            upcoming = book.get_upcoming_birthdays()
+
+        self.assertEqual(
+            upcoming,
+            [{"name": "LastDay", "congratulation_date": "10.11.2026"}],
+        )
+
+    def test_monday_after_a_weekend_can_fall_outside_the_window(self):
+        book = self._book_with([("EdgeSaturday", "09.01.1990")])
+
+        with freeze_today(2027, 1, 3):
+            upcoming = book.get_upcoming_birthdays()
+
+        self.assertEqual(
+            upcoming,
+            [{"name": "EdgeSaturday", "congratulation_date": "11.01.2027"}],
+        )
+
+    def test_february_29_stays_on_february_29_in_a_leap_year(self):
+        book = self._book_with([("Leap", "29.02.2000")])
+
+        with freeze_today(2028, 2, 24):
+            upcoming = book.get_upcoming_birthdays()
+
+        self.assertEqual(
+            upcoming,
+            [{"name": "Leap", "congratulation_date": "29.02.2028"}],
+        )
+
+    def test_february_29_on_sunday_moves_to_monday_outside_the_window(self):
+        book = self._book_with([("LeapSunday", "29.02.2000")])
+
+        with freeze_today(2032, 2, 23):
+            upcoming = book.get_upcoming_birthdays()
+
+        self.assertEqual(
+            upcoming,
+            [{"name": "LeapSunday", "congratulation_date": "01.03.2032"}],
+        )
+
     def test_february_29_in_non_leap_year_does_not_crash(self):
         book = self._book_with([("Leap", "29.02.2024")])
 
         with freeze_today(2027, 2, 26):
+            upcoming = book.get_upcoming_birthdays()
+
+        self.assertEqual(
+            upcoming,
+            [{"name": "Leap", "congratulation_date": "01.03.2027"}],
+        )
+
+    def test_non_leap_february_29_monday_can_fall_outside_the_window(self):
+        book = self._book_with([("Leap", "29.02.2024")])
+
+        with freeze_today(2027, 2, 22):
             upcoming = book.get_upcoming_birthdays()
 
         self.assertEqual(
@@ -330,6 +443,70 @@ class TestCommands(unittest.TestCase):
         self.assertEqual(add_birthday(["John"], self.book), "Usage: add-birthday name DD.MM.YYYY")
         self.assertEqual(show_birthday([], self.book), "Usage: show-birthday name")
 
+    def test_duplicate_phone_is_stored_again(self):
+        add_contact(["John", "1234567890"], self.book)
+
+        self.assertEqual(
+            add_contact(["John", "1234567890"], self.book),
+            "Phone added.",
+        )
+        self.assertEqual(
+            show_phone(["John"], self.book),
+            "1234567890; 1234567890",
+        )
+
+    def test_invalid_extra_phone_does_not_change_existing_contact(self):
+        add_contact(["John", "1234567890"], self.book)
+
+        self.assertEqual(
+            add_contact(["John", "12345"], self.book),
+            "Phone number must contain exactly 10 digits",
+        )
+        self.assertEqual(show_phone(["John"], self.book), "1234567890")
+
+    def test_change_missing_phone_keeps_the_old_number(self):
+        add_contact(["John", "1234567890"], self.book)
+
+        self.assertEqual(
+            change_contact(["John", "0000000000", "1111111111"], self.book),
+            "Phone number not found",
+        )
+        self.assertEqual(show_phone(["John"], self.book), "1234567890")
+
+    def test_excessive_arguments_are_rejected_without_changes(self):
+        self.assertEqual(
+            add_contact(["John", "1234567890", "0987654321"], self.book),
+            "Usage: add name phone",
+        )
+        self.assertIsNone(self.book.find("John"))
+
+        add_contact(["John", "1234567890"], self.book)
+        self.assertEqual(
+            change_contact(
+                ["John", "1234567890", "1111111111", "extra"],
+                self.book,
+            ),
+            "Usage: change name old_phone new_phone",
+        )
+        self.assertEqual(show_phone(["John"], self.book), "1234567890")
+        self.assertEqual(
+            show_phone(["John", "extra"], self.book),
+            "Usage: phone name",
+        )
+        self.assertEqual(
+            add_birthday(["John", "01.01.2000", "extra"], self.book),
+            "Usage: add-birthday name DD.MM.YYYY",
+        )
+        self.assertIsNone(self.book.find("John").birthday)
+        self.assertEqual(
+            show_birthday(["John", "extra"], self.book),
+            "Usage: show-birthday name",
+        )
+
+    def test_empty_book_has_no_upcoming_birthdays(self):
+        self.assertEqual(show_all(self.book), "No contacts found.")
+        self.assertEqual(birthdays(self.book), "No upcoming birthdays.")
+
     def test_parse_input_keeps_name_and_birthday_tokens(self):
         self.assertEqual(parse_input("  ADD John 1234567890  "), ("add", ["John", "1234567890"]))
         self.assertEqual(
@@ -389,6 +566,31 @@ class TestMainLoop(unittest.TestCase):
         printed = self._run(["EXIT"])
 
         self.assertEqual(printed, ["Welcome to the assistant bot!", "Good bye!"])
+
+    def test_close_and_invalid_command(self):
+        printed = self._run(["birthday", "Close"])
+
+        self.assertEqual(
+            printed,
+            [
+                "Welcome to the assistant bot!",
+                "Invalid command.",
+                "Good bye!",
+            ],
+        )
+
+    def test_excessive_add_arguments_do_not_create_a_contact(self):
+        printed = self._run(
+            [
+                "add John 1234567890 extra",
+                "phone John",
+                "exit",
+            ]
+        )
+
+        self.assertIn("Usage: add name phone", printed)
+        self.assertIn("Contact John not found.", printed)
+        self.assertEqual(printed[-1], "Good bye!")
 
 
 if __name__ == "__main__":

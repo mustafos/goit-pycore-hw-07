@@ -66,6 +66,9 @@ def _get_record(book: AddressBook, name: str) -> Record:
 
 @input_error
 def add_contact(args: list[str], book: AddressBook) -> str:
+    if len(args) != 2:
+        raise IndexError
+
     name = args[0]
     phone = args[1]
     record = book.find(name)
@@ -82,6 +85,9 @@ def add_contact(args: list[str], book: AddressBook) -> str:
 
 @input_error
 def change_contact(args: list[str], book: AddressBook) -> str:
+    if len(args) != 3:
+        raise IndexError
+
     name = args[0]
     old_phone = args[1]
     new_phone = args[2]
@@ -92,6 +98,9 @@ def change_contact(args: list[str], book: AddressBook) -> str:
 
 @input_error
 def show_phone(args: list[str], book: AddressBook) -> str:
+    if len(args) != 1:
+        raise IndexError
+
     name = args[0]
     record = _get_record(book, name)
 
@@ -110,6 +119,9 @@ def show_all(book: AddressBook) -> str:
 
 @input_error
 def add_birthday(args: list[str], book: AddressBook) -> str:
+    if len(args) != 2:
+        raise IndexError
+
     name = args[0]
     birthday = args[1]
     record = _get_record(book, name)
@@ -119,6 +131,9 @@ def add_birthday(args: list[str], book: AddressBook) -> str:
 
 @input_error
 def show_birthday(args: list[str], book: AddressBook) -> str:
+    if len(args) != 1:
+        raise IndexError
+
     name = args[0]
     record = _get_record(book, name)
 
