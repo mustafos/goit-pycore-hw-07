@@ -433,12 +433,18 @@ class TestCommands(unittest.TestCase):
             change_contact(["Nobody", "1234567890", "0987654321"], self.book),
             "Contact Nobody not found.",
         )
-        self.assertEqual(add_birthday(["Nobody", "01.01.2000"], self.book), "Contact Nobody not found.")
+        self.assertEqual(
+            add_birthday(["Nobody", "01.01.2000"], self.book),
+            "Contact Nobody not found.",
+        )
         self.assertEqual(show_birthday(["Nobody"], self.book), "Contact Nobody not found.")
 
         self.assertEqual(add_contact([], self.book), "Usage: add name phone")
         self.assertEqual(add_contact(["John"], self.book), "Usage: add name phone")
-        self.assertEqual(change_contact(["John", "1234567890"], self.book), "Usage: change name old_phone new_phone")
+        self.assertEqual(
+            change_contact(["John", "1234567890"], self.book),
+            "Usage: change name old_phone new_phone",
+        )
         self.assertEqual(show_phone([], self.book), "Usage: phone name")
         self.assertEqual(add_birthday(["John"], self.book), "Usage: add-birthday name DD.MM.YYYY")
         self.assertEqual(show_birthday([], self.book), "Usage: show-birthday name")
